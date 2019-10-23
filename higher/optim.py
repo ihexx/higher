@@ -94,6 +94,8 @@ class DifferentiableOptimizer(_abc.ABC):
             _collections.defaultdict(dict)
             for _ in range(len(self.param_groups))
         ]
+        assert len(self.param_groups) == 1, "Broke the state dict hack"
+        self.not_a_state_dict = {}
 
         # Deal with override
         if override is not None:
@@ -233,6 +235,34 @@ class DifferentiableOptimizer(_abc.ABC):
     def _update(self, grouped_grads: _GroupedGradsType, **kwargs) -> None:
         pass
 
+    def state_dict(self):
+        r"""Returns the state of the optimizer as a :class:`dict`.
+
+        It contains two entries:
+
+        * state - a dict holding current optimization state. Its content
+            differs between optimizer classes.
+        * param_groups - a dict containing all parameter groups
+        """
+        # Save ids instead of Tensors
+        def make_leaf_tensor(v:_torch.Tensor):
+            leaf_t = _torch.empty_like(v,)
+            leaf_t.data = v
+            return leaf_t
+        def pack_group(group):
+            packed = {k: make_leaf_tensor(v) if isinstance(v, _torch.Tensor) else v for k, v in group.items() if k != 'params'}
+            packed['params'] = [id(p) for p in group['params']]
+            return packed
+        param_groups = [pack_group(g) for g in self.param_groups]
+        # Remap state to use ids as keys
+        packed_state = {(id(k) if isinstance(k, _torch.Tensor) else k): \
+                            {k2: make_leaf_tensor(v2) if isinstance(v2, _torch.Tensor) else v2 for k2,v2 in v.items()}
+                        for k, v in self.not_a_state_dict.items()}
+        return {
+            'state': packed_state,
+            'param_groups': param_groups,
+        }
+
 
 class DifferentiableSGD(DifferentiableOptimizer):
     r"""A differentiable version of the SGD optimizer.
@@ -275,6 +305,7 @@ class DifferentiableAdam(DifferentiableOptimizer):
     This optimizer creates a gradient tape as it updates parameters."""
 
     def _update(self, grouped_grads: _GroupedGradsType, **kwargs) -> None:
+
 
         zipped = zip(self.param_groups, grouped_grads)
         for group_idx, (group, grads) in enumerate(zipped):
@@ -339,6 +370,8 @@ class DifferentiableAdam(DifferentiableOptimizer):
                 group['params'][p_idx] = _addcdiv(
                     p, -step_size, exp_avg, denom
                 )
+
+                self.not_a_state_dict.update({group['params'][p_idx]:state})
 
 
 class DifferentiableAdadelta(DifferentiableOptimizer):
