@@ -216,7 +216,7 @@ class DifferentiableOptimizer(_abc.ABC):
                 grads.append(all_grads[index])
             grouped_grads.append(grads)
 
-        self._update(grouped_grads)
+        self._update(grouped_grads,**kwargs)
 
         new_params = params[:]
         for group, mapping in zip(self.param_groups, self._group_to_param_list):
@@ -362,8 +362,11 @@ class DifferentiableAdam(DifferentiableOptimizer):
 
                 bias_correction1 = 1 - beta1**state['step']
                 bias_correction2 = 1 - beta2**state['step']
+
+                lr = kwargs['lr'] if 'lr' in kwargs else group['lr']
+                    
                 step_size = (
-                    group['lr'] * _math.sqrt(bias_correction2)
+                    lr * _math.sqrt(bias_correction2)
                     / bias_correction1
                 )
 
